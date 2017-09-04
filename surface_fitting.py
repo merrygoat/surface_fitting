@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import pdist, cdist, squareform
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
 from matplotlib.tri import Triangulation
@@ -7,7 +7,7 @@ from scipy.linalg import lstsq
 
 def main():
 
-    num_neighbours = 15
+    com_neighbours = 15
     filename = "centers.xyz"
     data = read_xyz(filename)
 
@@ -20,27 +20,60 @@ def main():
 
     # First get centres of mass
     for particle in range(data.shape[0]):
-        nearest_neigbour_indicies = np.argpartition(separation[particle], num_neighbours)[:num_neighbours]
+        nearest_neigbour_indicies = np.argpartition(separation[particle], com_neighbours)[:com_neighbours]
         nearest_neigbours = data[nearest_neigbour_indicies, :]
         centres_of_mass[particle] = np.average(nearest_neigbours, axis=0)
-    plot_com(data, centres_of_mass)
+    #plot_com(data, centres_of_mass)
 
-    # Now fit planes to centres of mass
-    separation = squareform(pdist(centres_of_mass))
+    vector_magnitude = np.zeros((data.shape[0]))
+    vector_direction =  np.zeros((data.shape[0]))
+    displacement_vectors = np.zeros_like(data)
+    separation = cdist(centres_of_mass, data)
     for particle in range(centres_of_mass.shape[0]):
-        nearest_neigbour_indicies = np.argpartition(separation[particle], 200)[:200]
-        nearest_neigbours = data[nearest_neigbour_indicies, :]
-        coefficients[particle], residuals[particle] = linear_fitting(nearest_neigbours, data)
-        if particle > 200:
-            plot_surface(nearest_neigbours, coefficients[particle], data)
+        nearest_neigbour_index = np.argmin(separation[particle])
+        nearest_neigbour = data[nearest_neigbour_index, :]
+        displacement_vectors[particle] = nearest_neigbour - centres_of_mass[particle]
+        if displacement_vectors[particle, 0] > 0:
+            vector_direction[particle] = 1
+            vector_magnitude[particle] = np.sqrt(displacement_vectors[particle, 0] ** 2 + displacement_vectors[particle, 1] ** 2 + displacement_vectors[particle, 2] ** 2)
+        else:
+            vector_direction[particle] = 0
+            vector_magnitude[particle] = - np.sqrt(displacement_vectors[particle, 0] ** 2 + displacement_vectors[particle, 1] ** 2 + displacement_vectors[particle, 2] ** 2)
 
-    #plt.scatter(data[:, 0], data[:, 1], c ='blue', s=50)
-    #plt.scatter(centres_of_mass[:, 0], centres_of_mass[:, 1], c='red', s=50)
-    #plt.axes().set_aspect('equal', 'datalim')
-    #plt.show()
-    #plot_residuals(data, residuals)
+    particle_diameter = 380/40
+    vector_magnitude = vector_magnitude/particle_diameter
+    plt.hist(vector_magnitude, bins=np.arange(min(vector_magnitude), max(vector_magnitude) + 0.1, 0.1))
+    plt.xlabel("Distance from plane centre (Particle diameters)")
+    plt.ylabel("Frequency")
+    plt.savefig("density.png")
+    plt.show()
+
+    quiver_plot(centres_of_mass, displacement_vectors)
+
+    outputfile = open("vectors.txt", 'a')
+    outputfile.close()
+    with open("vectors.txt", 'a') as outputfile:
+        outputfile.write(str(centres_of_mass.shape[0]) + "\ncomment\n")
+        for particle in range(centres_of_mass.shape[0]):
+            outputfile.write(str(vector_direction[particle]) + "\t" + str(data[particle, 0]) + "\t" + str(data[particle, 1]) + "\t" + str(data[particle, 2]) + "\n")
 
 
+def quiver_plot(centres, vectors):
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+    x = centres[:, 0]
+    y = centres[:, 1]
+    z = centres[:, 2]
+    ax.quiver(x, y, z, vectors[:, 0], vectors[:, 1], vectors[:, 2])
+    # Set up equal sized axes
+    max_range = np.array([x.max() - x.min(), y.max() - y.min(), z.max() - z.min()]).max() / 2.0
+    mid_x = (x.max() + x.min()) * 0.5
+    mid_y = (y.max() + y.min()) * 0.5
+    mid_z = (z.max() + z.min()) * 0.5
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+    plt.show()
 
 
 def read_xyz(filename):
@@ -105,19 +138,22 @@ def plot_residuals(data, residuals):
     ax.axis('tight')
     plt.show()
 
-def plot_com(data, com):
+
+def plot_com(data, com, center=(0, 0, 0)):
     # plot points on 3d axis
-    X = com[:, 0]
-    Y = com[:, 1]
-    Z = com[:, 2]
     fig = plt.figure()
     ax = axes3d.Axes3D(fig)
-    #ax.scatter(data[:, 0], data[:, 1], data[:, 2], c='blue', alpha=0.5, s=50)
-    ax.scatter(X, Y, Z, c='red', s=100)
+    ax.scatter(data[:, 0], data[:, 1], data[:, 2], c='blue', alpha=0.5, s=10)
+    ax.scatter(com[:, 0], com[:, 1], com[:, 2], c='red', s=200)
+    if center[0] != 0:
+        ax.scatter(center[0], center[1], center[2], c='green', s=300)
     plt.xlabel('X')
     plt.ylabel('Y')
     ax.set_zlabel('Z')
     # Set up equal sized axes
+    X = data[:, 0]
+    Y = data[:, 1]
+    Z = data[:, 2]
     max_range = np.array([X.max() - X.min(), Y.max() - Y.min(), Z.max() - Z.min()]).max() / 2.0
     mid_x = (X.max() + X.min()) * 0.5
     mid_y = (Y.max() + Y.min()) * 0.5
